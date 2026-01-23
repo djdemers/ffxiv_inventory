@@ -1,1 +1,215 @@
-# ffxiv_inventory
+# FFXIV Inventory Analysis
+
+A local Python application for Final Fantasy XIV (FFXIV) inventory analysis. Import inventory snapshots (JSON/CSV), store them in SQLite, and enrich items with data from XIVAPI (name, icon, category). Built with Python 3.11+, FastAPI, and SQLAlchemy.
+
+## Features
+
+- **Snapshot Import**: Import inventory snapshots from JSON or CSV files
+- **Immutable Snapshots**: All snapshots are immutable; inventory state is derived via joins/diffs on item_id
+- **Item Enrichment**: Automatically fetch item details (name, icon URL, category) from XIVAPI
+- **API Caching**: External API calls are cached in SQLite to minimize requests
+- **Inventory Comparison**: Compare snapshots to see what items were added, removed, or changed
+- **FastAPI REST API**: Clean, documented REST API endpoints
+- **Type Hints**: Clear, explicit code with comprehensive type hints
+- **Hotlinked Icons**: Icon URLs are stored as references (not downloaded)
+
+## Requirements
+
+- Python 3.11 or higher
+- SQLite (included with Python)
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/djdemers/ffxiv_inventory.git
+cd ffxiv_inventory
+```
+
+2. Install dependencies:
+```bash
+pip install -e .
+```
+
+Or for development:
+```bash
+pip install -e ".[dev]"
+```
+
+## Quick Start
+
+### Running the API Server
+
+Start the FastAPI server:
+
+```bash
+uvicorn ffxiv_inventory.main:app --reload
+```
+
+The API will be available at `http://localhost:8000`. Visit `http://localhost:8000/docs` for interactive API documentation.
+
+### Using the Python Library
+
+```python
+import asyncio
+from pathlib import Path
+from ffxiv_inventory.database import get_database
+from ffxiv_inventory.importer import SnapshotImporter
+from ffxiv_inventory.queries import InventoryQuery
+from ffxiv_inventory.xivapi import XIVAPIClient
+
+async def main():
+    # Initialize
+    db = get_database()
+    await db.init_db()
+    
+    xivapi_client = XIVAPIClient()
+    importer = SnapshotImporter(xivapi_client)
+    
+    # Import a snapshot
+    async for session in db.get_session():
+        snapshot = await importer.import_json(
+            session,
+            Path("my_inventory.json"),
+            snapshot_name="My First Snapshot",
+            enrich=True,
+        )
+        
+        # Get enriched items
+        items = await InventoryQuery.get_snapshot_items_enriched(
+            session, 
+            snapshot.id
+        )
+        for item in items:
+            print(f"{item['name']}: {item['quantity']}")
+    
+    await db.close()
+
+asyncio.run(main())
+```
+
+## Data Formats
+
+### JSON Format
+
+```json
+[
+    {"item_id": 5333, "quantity": 10},
+    {"item_id": 5334, "quantity": 5},
+    {"item_id": 5335, "quantity": 3}
+]
+```
+
+### CSV Format
+
+```csv
+item_id,quantity
+5333,10
+5334,5
+5335,3
+```
+
+## API Endpoints
+
+### Import Endpoints
+
+- `POST /snapshots/import/json` - Import JSON snapshot
+- `POST /snapshots/import/csv` - Import CSV snapshot
+
+### Query Endpoints
+
+- `GET /snapshots` - List all snapshots
+- `GET /snapshots/{snapshot_id}` - Get snapshot details
+- `GET /snapshots/{snapshot_id}/items` - Get snapshot items with enrichment
+- `GET /snapshots/compare/{snapshot_id_a}/{snapshot_id_b}` - Compare two snapshots
+- `GET /inventory/current` - Get current inventory state
+
+### Health Check
+
+- `GET /health` - Health check endpoint
+
+## Architecture
+
+### Database Schema
+
+**snapshots**: Immutable inventory snapshots
+- `id`: Primary key
+- `created_at`: Timestamp
+- `name`: Optional name
+
+**snapshot_items**: Items within snapshots
+- `id`: Primary key
+- `snapshot_id`: Foreign key to snapshots
+- `item_id`: XIVAPI item ID
+- `quantity`: Item quantity
+
+**item_info**: Cached item information from XIVAPI
+- `item_id`: Primary key (XIVAPI item ID)
+- `name`: Item name
+- `icon_url`: Icon URL (hotlinked)
+- `category`: Item category
+- `item_level`: Item level
+- `last_updated`: Cache timestamp
+
+### Caching Strategy
+
+Item information from XIVAPI is cached for 30 days by default. The cache:
+- Reduces API calls to XIVAPI
+- Improves response times
+- Works offline for previously fetched items
+- Automatically refreshes stale data
+
+### Rate Limiting
+
+The XIVAPI client implements rate limiting (20 requests/second by default) to respect API limits.
+
+## Examples
+
+Example files are provided in the `examples/` directory:
+- `example_inventory.json` - Sample JSON inventory
+- `example_inventory.csv` - Sample CSV inventory
+- `example_usage.py` - Example Python script
+
+Run the example:
+```bash
+cd examples
+python example_usage.py
+```
+
+## Development
+
+### Running Tests
+
+```bash
+pytest
+```
+
+### Code Formatting
+
+This project uses Ruff for linting and formatting:
+
+```bash
+ruff check .
+ruff format .
+```
+
+## Future Enhancements
+
+The following features can be added in the future:
+- **Universalis Integration**: Add market price data from Universalis API
+- **Item Search**: Search items by name, category, or other attributes
+- **Export Functionality**: Export snapshots back to JSON/CSV
+- **Snapshot Tagging**: Add tags/labels to snapshots for organization
+- **Statistics**: Calculate inventory statistics (total value, most common items, etc.)
+- **Web UI**: Add a web-based user interface
+
+## Notes
+
+- **No Docker**: This is a local Python application; Docker is not required
+- **No Client Interaction**: Does not interact with the FFXIV client or game files
+- **Hotlinked Icons**: Icon URLs reference XIVAPI; images are not downloaded
+- **Immutable Snapshots**: Snapshots cannot be modified after creation
+
+## License
+
+This project is provided as-is for personal use.
