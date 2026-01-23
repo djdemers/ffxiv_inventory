@@ -84,11 +84,19 @@ async def import_json_snapshot(
         importer = SnapshotImporter(xivapi_client)
         snapshot = await importer.import_json(session, temp_path, name, enrich)
         
+        # Get item count from database
+        from sqlalchemy import select, func
+        from .models import SnapshotItem
+        result = await session.execute(
+            select(func.count()).select_from(SnapshotItem).where(SnapshotItem.snapshot_id == snapshot.id)
+        )
+        item_count = result.scalar_one()
+        
         return {
             "id": snapshot.id,
             "name": snapshot.name,
             "created_at": snapshot.created_at.isoformat(),
-            "item_count": len(snapshot.items),
+            "item_count": item_count,
         }
     finally:
         # Clean up temp file
@@ -126,11 +134,19 @@ async def import_csv_snapshot(
         importer = SnapshotImporter(xivapi_client)
         snapshot = await importer.import_csv(session, temp_path, name, enrich)
         
+        # Get item count from database
+        from sqlalchemy import select, func
+        from .models import SnapshotItem
+        result = await session.execute(
+            select(func.count()).select_from(SnapshotItem).where(SnapshotItem.snapshot_id == snapshot.id)
+        )
+        item_count = result.scalar_one()
+        
         return {
             "id": snapshot.id,
             "name": snapshot.name,
             "created_at": snapshot.created_at.isoformat(),
-            "item_count": len(snapshot.items),
+            "item_count": item_count,
         }
     finally:
         # Clean up temp file
