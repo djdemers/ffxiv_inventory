@@ -1,7 +1,9 @@
 """FastAPI application for FFXIV inventory analysis."""
 
+import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,29 +14,28 @@ from .importer import SnapshotImporter
 from .queries import InventoryQuery
 from .xivapi import XIVAPIClient
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Manage application lifespan."""
+    # Startup
+    db = get_database()
+    await db.init_db()
+    yield
+    # Shutdown
+    await db.close()
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="FFXIV Inventory Analysis",
     description="Local Python app for FFXIV inventory analysis",
     version=__version__,
+    lifespan=lifespan,
 )
 
 # Initialize XIVAPI client
 xivapi_client = XIVAPIClient()
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialize database on startup."""
-    db = get_database()
-    await db.init_db()
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Close database connection on shutdown."""
-    db = get_database()
-    await db.close()
 
 
 @app.get("/")
@@ -73,11 +74,11 @@ async def import_json_snapshot(
     if not file.filename or not file.filename.endswith('.json'):
         raise HTTPException(status_code=400, detail="File must be a JSON file")
     
-    # Save uploaded file temporarily
-    temp_path = Path(f"/tmp/{file.filename}")
-    with open(temp_path, "wb") as f:
+    # Use secure temporary file
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.json', delete=False) as temp_file:
         content = await file.read()
-        f.write(content)
+        temp_file.write(content)
+        temp_path = Path(temp_file.name)
     
     try:
         importer = SnapshotImporter(xivapi_client)
@@ -115,11 +116,11 @@ async def import_csv_snapshot(
     if not file.filename or not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV file")
     
-    # Save uploaded file temporarily
-    temp_path = Path(f"/tmp/{file.filename}")
-    with open(temp_path, "wb") as f:
+    # Use secure temporary file
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as temp_file:
         content = await file.read()
-        f.write(content)
+        temp_file.write(content)
+        temp_path = Path(temp_file.name)
     
     try:
         importer = SnapshotImporter(xivapi_client)

@@ -2,7 +2,7 @@
 
 import csv
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +57,7 @@ class SnapshotImporter:
         # Create snapshot
         snapshot = Snapshot(
             name=snapshot_name or file_path.stem,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.add(snapshot)
         await session.flush()  # Get snapshot ID
@@ -130,7 +130,7 @@ class SnapshotImporter:
         # Create snapshot
         snapshot = Snapshot(
             name=snapshot_name or file_path.stem,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.add(snapshot)
         await session.flush()

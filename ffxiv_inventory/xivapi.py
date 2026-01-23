@@ -1,7 +1,7 @@
 """XIVAPI client for item enrichment with caching."""
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -65,7 +65,7 @@ class XIVAPIClient:
             
             if cached_item:
                 # Check if cache is still valid
-                age = datetime.utcnow() - cached_item.last_updated
+                age = datetime.now(timezone.utc) - cached_item.last_updated
                 if age < self.cache_ttl:
                     return cached_item
         
@@ -88,7 +88,7 @@ class XIVAPIClient:
                     icon_url=self._get_icon_url(data),
                     category=self._get_category(data),
                     item_level=data.get("LevelItem", 0),
-                    last_updated=datetime.utcnow(),
+                    last_updated=datetime.now(timezone.utc),
                 )
                 
                 # Merge into database (upsert)

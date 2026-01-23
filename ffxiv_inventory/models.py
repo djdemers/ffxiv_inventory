@@ -1,6 +1,6 @@
 """Database models for FFXIV inventory tracking."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import ForeignKey, Index, String, Integer, DateTime
@@ -18,7 +18,11 @@ class Snapshot(Base):
     __tablename__ = "snapshots"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        nullable=False, 
+        default=lambda: datetime.now(timezone.utc)
+    )
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # Relationship to items in this snapshot
@@ -77,8 +81,8 @@ class ItemInfo(Base):
     last_updated: Mapped[datetime] = mapped_column(
         DateTime, 
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
     )
     
     def __repr__(self) -> str:
