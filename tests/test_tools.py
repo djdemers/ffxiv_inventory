@@ -39,6 +39,19 @@ class ToolTests(unittest.TestCase):
                tools.get_material_list([{"name": "Cotton Yarn", "quantity": 3}])["raw_materials"]}
         self.assertEqual(raw["Cotton Boll"], 4)
 
+    def test_material_list_merges_shared_intermediates_before_rounding(self):
+        # Two plan entries need 3 Cotton Yarn in total: 2 synths (yield 2), not 1 + 1 + 1.
+        result = tools.get_material_list([{"name": "Cotton Yarn", "quantity": 1},
+                                          {"name": "Cotton Yarn", "quantity": 2}])
+        raw = {r["name"]: r["quantity"] for r in result["raw_materials"]}
+        self.assertEqual(raw["Cotton Boll"], 4)
+
+    def test_material_list_orders_crafts_ingredients_first(self):
+        crafts = [c["name"] for c in tools.get_material_list(
+            [{"name": "Bronze Hatchet", "quantity": 1}])["crafts"]]
+        self.assertEqual(crafts[-1], "Bronze Hatchet")
+        self.assertLess(crafts.index("Bronze Ingot"), crafts.index("Bronze Hatchet"))
+
     def test_search_ranks_title_matches_first(self):
         self.assertEqual(tools.search("hi-potion")["results"][0]["title"], "Hi-Potion")
 
