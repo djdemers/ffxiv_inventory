@@ -182,10 +182,8 @@ def get_material_list(items: list[dict], expand_intermediates: bool = True,
     jobs, a job in prefer_jobs wins; otherwise the lowest-level recipe is used.
     """
     preferred = [normalize_job(j) for j in prefer_jobs or []]
-    raw: dict[int, int] = defaultdict(int)
-    crafts: dict[int, int] = defaultdict(int)
-    missing: list[str] = []
     con = _db()
+    missing: list[str] = []
 
     def lowest_recipe(item_id: int):
         rows = con.execute("SELECT * FROM recipes WHERE item_id = ? ORDER BY level", (item_id,)).fetchall()
@@ -195,22 +193,47 @@ def get_material_list(items: list[dict], expand_intermediates: bool = True,
                     return row
         return rows[0] if rows else None
 
-    def add(item_id: int, qty: int, top: bool, depth: int = 0) -> None:
-        recipe = lowest_recipe(item_id)
-        if recipe is None or depth > 8 or (not top and not expand_intermediates):
-            raw[item_id] += qty
-            return
-        crafts[item_id] += qty
-        runs = -(-qty // recipe["yields"])  # ceil
-        for g in con.execute("SELECT item_id, amount FROM ingredients WHERE recipe_id = ?", (recipe["id"],)):
-            add(g["item_id"], g["amount"] * runs, False, depth + 1)
+    def ingredients(recipe) -> list:
+        return con.execute("SELECT item_id, amount FROM ingredients WHERE recipe_id = ?", (recipe["id"],)).fetchall()
 
+    # Pass 1: walk the recipe trees. Record each craft's recipe and its deepest
+    # position, so every craft comes after everything that consumes it.
+    recipe_of: dict[int, sqlite3.Row] = {}
+    depth_of: dict[int, int] = defaultdict(int)
+
+    def visit(item_id: int, depth: int) -> None:
+        if depth and (not expand_intermediates or depth > 8):
+            return
+        recipe = recipe_of.get(item_id) or lowest_recipe(item_id)
+        if recipe is None:
+            return
+        recipe_of[item_id] = recipe
+        if item_id in depth_of and depth_of[item_id] >= depth:
+            return
+        depth_of[item_id] = depth
+        for g in ingredients(recipe):
+            visit(g["item_id"], depth + 1)
+
+    demand: dict[int, int] = defaultdict(int)
     for entry in items:
         item = find_item(entry["name"])
         if not item:
             missing.append(entry["name"])
             continue
-        add(item["id"], int(entry.get("quantity", 1)), True)
+        demand[item["id"]] += int(entry.get("quantity", 1))
+        visit(item["id"], 0)
+
+    # Pass 2: from the finished items down, turn total demand into synths
+    # (rounding up by yield once per item) and pass it on to ingredients.
+    crafts: dict[int, int] = {}
+    order = sorted(depth_of, key=lambda i: depth_of[i])
+    for item_id in order:
+        recipe = recipe_of[item_id]
+        crafts[item_id] = demand.pop(item_id, 0)
+        runs = -(-crafts[item_id] // recipe["yields"])  # ceil
+        for g in ingredients(recipe):
+            demand[g["item_id"]] += g["amount"] * runs
+    raw = {i: q for i, q in demand.items() if q > 0}
 
     def describe(item_id: int, qty: int) -> dict:
         it = con.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
@@ -221,8 +244,9 @@ def get_material_list(items: list[dict], expand_intermediates: bool = True,
         return row
 
     result = {
-        "crafts": [describe(i, q) | {"job": lowest_recipe(i)["job"], "level": lowest_recipe(i)["level"]}
-                   for i, q in crafts.items()],
+        # Deepest intermediates first, so the list reads in the order you craft.
+        "crafts": [describe(i, crafts[i]) | {"job": recipe_of[i]["job"], "level": recipe_of[i]["level"]}
+                   for i in reversed(order)],
         "raw_materials": sorted((describe(i, q) for i, q in raw.items()), key=lambda r: r["name"]),
     }
     if missing:

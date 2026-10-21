@@ -23,6 +23,22 @@ python -m companion.cli tool get_material_list '{"items": [{"name": "Bronze Hatc
 python -m companion.cli tool get_price '{"item_names": ["Cobalt Ore"], "world": "Aether"}'
 ```
 
+## Crafting planner website
+
+A local web page over the same tools. It needs no API key and nothing extra to install.
+
+```bash
+python -m companion.server        # then open http://localhost:8000
+```
+
+- **Browse by job:** pick a crafting job and level range to list recipes, with the levequests for that range.
+- **Search:** find any craftable item by name.
+- **Recipe details:** ingredients, and where each one comes from (crafted, gathered, or vendor price).
+- **My plan:** add items with "+ Plan" to get one combined shopping list. Shared materials are merged, intermediates (ingots, lumber, yarn) are broken down, and the crafts are listed in the order you make them. Tick "Prefer recipes from" for the jobs you're leveling.
+- **Prices:** enter a world or data center and press "Get prices" for Universalis market prices and an estimated total, using the cheaper of vendor and market for each material.
+
+Your plan and checkboxes are saved in your browser.
+
 ## How it works
 
 | Piece | File | What it does |
@@ -31,6 +47,7 @@ python -m companion.cli tool get_price '{"item_names": ["Cobalt Ore"], "world": 
 | Index | same | Writes one short text document per recipe, item, and leve into an SQLite FTS5 table (BM25 keyword search). |
 | Tools | `companion/tools.py` | `search`, `get_recipe`, `get_item`, `list_recipes`, `find_leves`, `get_material_list`, `get_price`. Plain functions returning JSON. |
 | Prices | `companion/market.py` | Universalis API client with a 15-minute SQLite cache. |
+| Website | `companion/server.py`, `companion/web/index.html` | Standard-library HTTP server with a JSON API over the tools, and a single-page planner. |
 | Assistant | `companion/agent.py` | Claude tool-use loop with a grounding system prompt. Model: `claude-opus-5-5` (override with `COMPANION_MODEL`). |
 | Tests | `evals/`, `tests/` | 27 test questions, plus unit tests. |
 

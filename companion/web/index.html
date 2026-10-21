@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARR Crafting Planner</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --panel: #ffffff; --text: #1f2328; --muted: #6a6f76; --line: #e3dfd6;
+    --accent: #2f6db5; --accent-soft: #e5eef9; --good: #2d7a46; --warn: #a15c00; --chip: #f0ede6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171b; --panel: #1e2126; --text: #e6e6e6; --muted: #9aa0a8; --line: #30343b;
+      --accent: #6aa5ef; --accent-soft: #23324a; --good: #6cc48a; --warn: #e3a64f; --chip: #2a2e35;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 2px 0 0; color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+         gap: 16px; padding: 16px 20px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr 1fr; } #plan-col { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; padding: 12px; } }
+  section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+                  padding: 14px; min-width: 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  h3 { font-size: 13px; margin: 16px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tabs button { flex: 1; }
+  button, select, input { font: inherit; color: inherit; }
+  button { background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: var(--accent); }
+  button.primary, .tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.small { padding: 1px 8px; font-size: 12px; }
+  select, input[type=text], input[type=number], input[type=search] {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  input[type=number] { width: 64px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .row label { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--accent-soft); }
+  .list-scroll { max-height: 60vh; overflow: auto; }
+  .muted { color: var(--muted); }
+  .chip { display: inline-block; background: var(--chip); border-radius: 999px; padding: 0 7px;
+          font-size: 12px; margin: 1px 2px 1px 0; white-space: nowrap; }
+  .chip.gather { color: var(--good); } .chip.vendor { color: var(--warn); } .chip.craft { color: var(--accent); }
+  .stars { color: var(--warn); }
+  .empty { color: var(--muted); padding: 16px 0; text-align: center; }
+  .error { color: #c0392b; }
+  .done td { opacity: .45; text-decoration: line-through; }
+  .total { font-weight: 600; }
+  .detail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .detail-head h2 { margin: 0; }
+  details summary { cursor: pointer; color: var(--muted); margin: 10px 0 4px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Crafting planner: A Realm Reborn (levels 1-50)</h1>
+  <p>Browse recipes, build a plan, and get one combined shopping list with live market board prices.</p>
+</header>
+<main>
+  <section class="panel" id="browse-col">
+    <div class="tabs">
+      <button id="tab-job" class="active">Browse by job</button>
+      <button id="tab-search">Search</button>
+    </div>
+    <div id="pane-job">
+      <div class="row">
+        <select id="job"></select>
+        <label>Level</label><input type="number" id="min" min="1" max="50" value="1">
+        <span class="muted">to</span><input type="number" id="max" min="1" max="50" value="10">
+      </div>
+      <div class="list-scroll" id="recipe-list"></div>
+      <details id="leve-box"><summary>Levequests in this range</summary><div id="leve-list"></div></details>
+    </div>
+    <div id="pane-search" hidden>
+      <div class="row"><input type="search" id="q" placeholder="Item name, e.g. bronze ingot" style="flex:1"></div>
+      <div class="list-scroll" id="search-list"><p class="empty">Type to search recipes and items.</p></div>
+    </div>
+  </section>
+
+  <section class="panel" id="detail-col">
+    <div id="detail"><p class="empty">Pick a recipe to see its ingredients.</p></div>
+  </section>
+
+  <section class="panel" id="plan-col">
+    <h2>My plan</h2>
+    <div id="plan-items"></div>
+    <div class="row" style="margin-top:8px">
+      <label>Prefer recipes from</label>
+      <span id="prefer-jobs"></span>
+    </div>
+    <div class="row">
+      <label for="world">World or data center</label>
+      <input type="text" id="world" placeholder="e.g. Gilgamesh or Aether" style="width:170px">
+      <button id="get-prices">Get prices</button>
+    </div>
+    <div id="shopping"></div>
+  </section>
+</main>
+
+<script>
+const JOBS = {CRP: "Carpenter", BSM: "Blacksmith", ARM: "Armorer", GSM: "Goldsmith",
+              LTW: "Leatherworker", WVR: "Weaver", ALC: "Alchemist", CUL: "Culinarian"};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
+const gil = (n) => n == null ? "" : n.toLocaleString() + " gil";
+const stars = (n) => n ? `<span class="stars">${"★".repeat(n)}</span>` : "";
+
+// Saved state (per browser). Storage can be unavailable, so every access is guarded.
+const store = {
+  get(key, fallback) { try { return JSON.parse(localStorage.getItem("planner." + key)) ?? fallback; } catch { return fallback; } },
+  set(key, value) { try { localStorage.setItem("planner." + key, JSON.stringify(value)); } catch {} },
+};
+let plan = store.get("plan", []);            // [{name, quantity}]
+let preferJobs = store.get("preferJobs", []);
+let checked = store.get("checked", {});      // material name -> true
+let prices = {};                              // material name -> price summary
+let priceError = "";
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const data = await res.json();
+  if (!res.ok && !data.error) data.error = `HTTP ${res.status}`;
+  return data;
+}
+
+function sources(it) {
+  const out = [];
+  for (const c of it.crafted_by || []) out.push(`<span class="chip craft">${c.job} ${c.level}${"★".repeat(c.stars)}</span>`);
+  if (it.gather_level) out.push(`<span class="chip gather">gather ${it.gather_level}</span>`);
+  if (it.vendor_price) out.push(`<span class="chip vendor">vendor ${gil(it.vendor_price)}</span>`);
+  return out.join("") || '<span class="muted">other</span>';
+}
+
+// ---- Browse ----
+for (const [abbr, name] of Object.entries(JOBS)) $("job").add(new Option(`${name} (${abbr})`, abbr));
+$("job").value = store.get("job", "CRP");
+$("min").value = store.get("min", 1);
+$("max").value = store.get("max", 10);
+
+let browseTimer;
+function scheduleBrowse() { clearTimeout(browseTimer); browseTimer = setTimeout(loadBrowse, 200); }
+
+async function loadBrowse() {
+  const job = $("job").value, min = +$("min").value || 1, max = +$("max").value || 50;
+  store.set("job", job); store.set("min", min); store.set("max", max);
+  const [recipes, leves] = await Promise.all([
+    api(`/api/recipes?job=${job}&min=${min}&max=${max}&limit=200`),
+    api(`/api/leves?job=${job}&min=${min}&max=${max}`),
+  ]);
+  if (recipes.error) { $("recipe-list").innerHTML = `<p class="error">${esc(recipes.error)}</p>`; return; }
+  $("recipe-list").innerHTML = recipes.recipes.length ? `<table>
+    <tr><th class="num">Lv</th><th>Item</th><th>Category</th><th></th></tr>
+    ${recipes.recipes.map((r) => `<tr class="clickable" data-item="${esc(r.name)}">
+      <td class="num">${r.level}${stars(r.stars)}</td><td>${esc(r.name)}</td>
+      <td class="muted">${esc(r.category)}</td>
+      <td><button class="small" data-add="${esc(r.name)}" title="Add to plan">+ Plan</button></td></tr>`).join("")}
+    </table>` : '<p class="empty">No recipes in this range.</p>';
+  $("leve-list").innerHTML = leves.leves?.length ? `<table>
+    <tr><th class="num">Lv</th><th>Leve</th><th>Turn in</th><th class="num">Gil</th></tr>
+    ${leves.leves.map((l) => `<tr class="clickable" data-item="${esc(l.turn_in)}">
+      <td class="num">${l.level}</td><td>${esc(l.name)}<br><span class="muted">${esc(l.town)}</span></td>
+      <td>${l.amount}× ${esc(l.turn_in)}</td><td class="num">${l.gil_reward}</td></tr>`).join("")}
+    </table>` : '<p class="empty">No levequests in this range.</p>';
+}
+["job", "min", "max"].forEach((id) => $(id).addEventListener("input", scheduleBrowse));
+
+// ---- Search ----
+let searchTimer;
+$("q").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const q = $("q").value.trim();
+    if (!q) { $("search-list").innerHTML = '<p class="empty">Type to search recipes and items.</p>'; return; }
+    const data = await api(`/api/search?kind=recipe&limit=25&q=${encodeURIComponent(q)}`);
+    const seen = new Set();
+    const rows = (data.results || []).filter((r) => !seen.has(r.title) && seen.add(r.title));
+    $("search-list").innerHTML = rows.length ? `<table>${rows.map((r) => `
+      <tr class="clickable" data-item="${esc(r.title)}"><td>${esc(r.title)}<br>
+      <span class="muted">${esc(r.body.split(". ")[0])}</span></td>
+      <td><button class="small" data-add="${esc(r.title)}">+ Plan</button></td></tr>`).join("")}</table>`
+      : '<p class="empty">No craftable items match.</p>';
+  }, 250);
+});
+
+for (const tab of ["job", "search"]) {
+  $("tab-" + tab).addEventListener("click", () => {
+    $("tab-job").classList.toggle("active", tab === "job");
+    $("tab-search").classList.toggle("active", tab === "search");
+    $("pane-job").hidden = tab !== "job";
+    $("pane-search").hidden = tab !== "search";
+    if (tab === "search") $("q").focus();
+  });
+}
+
+// ---- Recipe detail ----
+async function showRecipe(name) {
+  $("detail").innerHTML = '<p class="empty">Loading…</p>';
+  const data = await api(`/api/recipe?item=${encodeURIComponent(name)}`);
+  if (data.error && !data.recipes) {
+    $("detail").innerHTML = `<div class="detail-head"><h2>${esc(data.item || name)}</h2></div>
+      <p class="muted">${esc(data.error)}</p>${data.gather_level || data.vendor_price ? `<p>${sources(data)}</p>` : ""}`;
+    return;
+  }
+  $("detail").innerHTML = `<div class="detail-head"><h2>${esc(data.item)}</h2>
+      <button class="primary" data-add="${esc(data.item)}">+ Add to plan</button></div>
+    ${data.note ? `<p class="muted">${esc(data.note)}</p>` : ""}
+    ${data.recipes.map((r) => `
+      <h3>${JOBS[r.job]} · level ${r.level}${stars(r.stars)}</h3>
+      <p class="muted">${esc(r.category)} · makes ${r.yields} per craft${r.can_hq ? " · can be HQ" : ""}
+        ${r.master_book ? `<br>Needs master recipe book: <b>${esc(r.master_book)}</b>` : ""}
+        ${r.patch ? `<br>Added in patch ${esc(r.patch)}` : ""}</p>
+      <table><tr><th class="num">Qty</th><th>Ingredient</th><th>Where to get it</th></tr>
+      ${r.ingredients.map((i) => `<tr class="${i.crafted_by.length ? "clickable" : ""}" ${i.crafted_by.length ? `data-item="${esc(i.name)}"` : ""}>
+        <td class="num">${i.amount}</td><td>${esc(i.name)}</td><td>${sources(i)}</td></tr>`).join("")}
+      </table>`).join("")}`;
+}
+
+// ---- Plan ----
+function savePlan() { store.set("plan", plan); renderPlan(); refreshShopping(); }
+
+function addToPlan(name) {
+  const existing = plan.find((p) => p.name === name);
+  if (existing) existing.quantity += 1; else plan.push({name, quantity: 1});
+  savePlan();
+}
+
+function renderPlan() {
+  $("plan-items").innerHTML = plan.length ? `<table>
+    ${plan.map((p, i) => `<tr><td><input type="number" min="1" value="${p.quantity}" data-qty="${i}"></td>
+      <td class="clickable" data-item="${esc(p.name)}">${esc(p.name)}</td>
+      <td><button class="small" data-remove="${i}" title="Remove">✕</button></td></tr>`).join("")}
+    </table><div class="row" style="margin-top:6px"><button class="small" id="clear-plan">Clear plan</button></div>`
+    : '<p class="empty">Add recipes with “+ Plan” to build a shopping list.</p>';
+  $("prefer-jobs").innerHTML = Object.keys(JOBS).map((j) =>
+    `<label class="chip"><input type="checkbox" data-prefer="${j}" ${preferJobs.includes(j) ? "checked" : ""}> ${j}</label>`).join("");
+}
+
+let shoppingTimer;
+function refreshShopping() { clearTimeout(shoppingTimer); shoppingTimer = setTimeout(loadShopping, 250); }
+
+let lastList = null;
+async function loadShopping() {
+  if (!plan.length) { $("shopping").innerHTML = ""; lastList = null; return; }
+  lastList = await api("/api/materials", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({items: plan, prefer_jobs: preferJobs}),
+  });
+  renderShopping();
+}
+
+function renderShopping() {
+  const data = lastList;
+  if (!data) return;
+  if (data.error) { $("shopping").innerHTML = `<p class="error">${esc(data.error)}</p>`; return; }
+  let total = 0, priced = 0;
+  const rawRows = data.raw_materials.map((m) => {
+    const p = prices[m.name];
+    const market = p?.min_price_nq ?? p?.min_price_hq;
+    const options = [m.vendor_price, market].filter((x) => x != null);
+    const best = options.length ? Math.min(...options) * m.quantity : null;
+    if (best != null) { total += best; priced += 1; }
+    const where = m.vendor_price && (market == null || m.vendor_price <= market) ? "vendor" : market != null ? "market" : "";
+    return `<tr class="${checked[m.name] ? "done" : ""}">
+      <td><input type="checkbox" data-check="${esc(m.name)}" ${checked[m.name] ? "checked" : ""}></td>
+      <td class="num">${m.quantity}</td><td>${esc(m.name)}<br>${sources(m)}</td>
+      <td class="num">${market != null ? gil(market) : p ? '<span class="muted">none listed</span>' : ""}</td>
+      <td class="num">${best != null ? gil(best) + `<br><span class="muted">${where}</span>` : ""}</td></tr>`;
+  }).join("");
+  const crafts = data.crafts.map((c) => `<tr class="${checked["craft:" + c.name] ? "done" : ""}">
+      <td><input type="checkbox" data-check="craft:${esc(c.name)}" ${checked["craft:" + c.name] ? "checked" : ""}></td>
+      <td class="num">${c.quantity}</td><td class="clickable" data-item="${esc(c.name)}">${esc(c.name)}</td>
+      <td><span class="chip craft">${c.job} ${c.level}</span></td></tr>`).join("");
+  const anyPrices = Object.keys(prices).length > 0;
+  $("shopping").innerHTML = `
+    <h3>Materials to gather or buy</h3>
+    <table><tr><th></th><th class="num">Qty</th><th>Material</th><th class="num">Market each</th><th class="num">Cheapest total</th></tr>
+      ${rawRows}
+      ${priced ? `<tr><td></td><td></td><td class="total">Estimated cost (${priced} of ${data.raw_materials.length} priced)</td><td></td>
+        <td class="num total">${gil(total)}</td></tr>` : ""}</table>
+    ${priceError ? `<p class="error">Couldn't get prices: ${esc(priceError)}</p>`
+      : anyPrices ? "" : '<p class="muted">Enter your world or data center and press “Get prices” to see market board prices.</p>'}
+    <h3>Crafts, in order</h3>
+    <table>${crafts}</table>
+    ${data.not_found?.length ? `<p class="error">Not found: ${data.not_found.map(esc).join(", ")}</p>` : ""}`;
+}
+
+$("world").value = store.get("world", "");
+$("get-prices").addEventListener("click", async () => {
+  const world = $("world").value.trim();
+  if (!world || !lastList) return;
+  store.set("world", world);
+  const names = lastList.raw_materials.map((m) => m.name);
+  $("get-prices").disabled = true; $("get-prices").textContent = "Loading…";
+  prices = {}; priceError = "";
+  try {
+    for (let i = 0; i < names.length; i += 20) {   // the API takes 20 items per call
+      const data = await api(`/api/price?world=${encodeURIComponent(world)}&items=${encodeURIComponent(names.slice(i, i + 20).join("|"))}`);
+      if (data.error) { priceError = data.error; break; }
+      for (const p of data.prices) prices[p.name] = p;
+      for (const n of data.not_found_or_untradable || []) prices[n] = {};
+    }
+  } finally {
+    $("get-prices").disabled = false; $("get-prices").textContent = "Get prices";
+    renderShopping();
+  }
+});
+
+// ---- Event delegation for buttons and rows ----
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.dataset.add) { e.stopPropagation(); addToPlan(t.dataset.add); return; }
+  if (t.dataset.remove) { plan.splice(+t.dataset.remove, 1); savePlan(); return; }
+  if (t.id === "clear-plan") { plan = []; checked = {}; store.set("checked", checked); savePlan(); return; }
+  const row = t.closest("[data-item]");
+  if (row && !t.matches("input, button")) showRecipe(row.dataset.item);
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset.qty) {
+    plan[+t.dataset.qty].quantity = Math.max(1, parseInt(t.value) || 1);
+    savePlan();
+  } else if (t.dataset.prefer) {
+    preferJobs = t.checked ? [...preferJobs, t.dataset.prefer] : preferJobs.filter((j) => j !== t.dataset.prefer);
+    store.set("preferJobs", preferJobs);
+    refreshShopping();
+  } else if (t.dataset.check) {
+    if (t.checked) checked[t.dataset.check] = true; else delete checked[t.dataset.check];
+    store.set("checked", checked);
+    renderShopping();
+  }
+});
+
+renderPlan();
+loadBrowse();
+loadShopping();
+</script>
+</body>
+</html>
