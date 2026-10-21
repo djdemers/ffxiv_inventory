@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+ffxiv_inventory/__init__.py
+ffxiv_inventory/database.py
+ffxiv_inventory/importer.py
+ffxiv_inventory/main.py
+ffxiv_inventory/models.py
+ffxiv_inventory/queries.py
+ffxiv_inventory/xivapi.py
+ffxiv_inventory.egg-info/PKG-INFO
+ffxiv_inventory.egg-info/SOURCES.txt
+ffxiv_inventory.egg-info/dependency_links.txt
+ffxiv_inventory.egg-info/requires.txt
+ffxiv_inventory.egg-info/top_level.txt
