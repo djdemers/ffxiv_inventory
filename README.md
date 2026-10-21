@@ -1,215 +1,72 @@
-# FFXIV Inventory Analysis
+# FFXIV crafting companion (ARR prototype)
 
-A local Python application for Final Fantasy XIV (FFXIV) inventory analysis. Import inventory snapshots (JSON/CSV), store them in SQLite, and enrich items with data from XIVAPI (name, icon, category). Built with Python 3.11+, FastAPI, and SQLAlchemy.
+A retrieval-augmented (RAG) assistant for A Realm Reborn crafting, levels 1-50. Claude answers
+questions by calling lookup tools over a local copy of the game data, so recipes, levels, and
+prices come from data rather than the model's memory. The same tools are meant to become the
+API behind a crafting planner website.
 
-## Features
-
-- **Snapshot Import**: Import inventory snapshots from JSON or CSV files
-- **Immutable Snapshots**: All snapshots are immutable; inventory state is derived via joins/diffs on item_id
-- **Item Enrichment**: Automatically fetch item details (name, icon URL, category) from XIVAPI
-- **API Caching**: External API calls are cached in SQLite to minimize requests
-- **Inventory Comparison**: Compare snapshots to see what items were added, removed, or changed
-- **FastAPI REST API**: Clean, documented REST API endpoints
-- **Type Hints**: Clear, explicit code with comprehensive type hints
-- **Hotlinked Icons**: Icon URLs are stored as references (not downloaded)
-
-## Requirements
-
-- Python 3.11 or higher
-- SQLite (included with Python)
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/djdemers/ffxiv_inventory.git
-cd ffxiv_inventory
-```
-
-2. Install dependencies:
-```bash
-pip install -e .
-```
-
-Or for development:
-```bash
-pip install -e ".[dev]"
-```
-
-## Quick Start
-
-### Running the API Server
-
-Start the FastAPI server:
+## Quick start
 
 ```bash
-uvicorn ffxiv_inventory.main:app --reload
+pip install -r requirements.txt
+python -m companion.build_db              # downloads game data CSVs, builds data/ffxiv_arr.db
+export ANTHROPIC_API_KEY=sk-ant-...
+python -m companion.cli ask "What do I need for 3 Iron Ingots as a Blacksmith?" --show-tools
+python -m companion.cli chat
 ```
 
-The API will be available at `http://localhost:8000`. Visit `http://localhost:8000/docs` for interactive API documentation.
-
-### Using the Python Library
-
-```python
-import asyncio
-from pathlib import Path
-from ffxiv_inventory.database import get_database
-from ffxiv_inventory.importer import SnapshotImporter
-from ffxiv_inventory.queries import InventoryQuery
-from ffxiv_inventory.xivapi import XIVAPIClient
-
-async def main():
-    # Initialize
-    db = get_database()
-    await db.init_db()
-    
-    xivapi_client = XIVAPIClient()
-    importer = SnapshotImporter(xivapi_client)
-    
-    # Import a snapshot
-    async for session in db.get_session():
-        snapshot = await importer.import_json(
-            session,
-            Path("my_inventory.json"),
-            snapshot_name="My First Snapshot",
-            enrich=True,
-        )
-        
-        # Get enriched items
-        items = await InventoryQuery.get_snapshot_items_enriched(
-            session, 
-            snapshot.id
-        )
-        for item in items:
-            print(f"{item['name']}: {item['quantity']}")
-    
-    await db.close()
-
-asyncio.run(main())
-```
-
-## Data Formats
-
-### JSON Format
-
-```json
-[
-    {"item_id": 5333, "quantity": 10},
-    {"item_id": 5334, "quantity": 5},
-    {"item_id": 5335, "quantity": 3}
-]
-```
-
-### CSV Format
-
-```csv
-item_id,quantity
-5333,10
-5334,5
-5335,3
-```
-
-## API Endpoints
-
-### Import Endpoints
-
-- `POST /snapshots/import/json` - Import JSON snapshot
-- `POST /snapshots/import/csv` - Import CSV snapshot
-
-### Query Endpoints
-
-- `GET /snapshots` - List all snapshots
-- `GET /snapshots/{snapshot_id}` - Get snapshot details
-- `GET /snapshots/{snapshot_id}/items` - Get snapshot items with enrichment
-- `GET /snapshots/compare/{snapshot_id_a}/{snapshot_id_b}` - Compare two snapshots
-- `GET /inventory/current` - Get current inventory state
-
-### Health Check
-
-- `GET /health` - Health check endpoint
-
-## Architecture
-
-### Database Schema
-
-**snapshots**: Immutable inventory snapshots
-- `id`: Primary key
-- `created_at`: Timestamp
-- `name`: Optional name
-
-**snapshot_items**: Items within snapshots
-- `id`: Primary key
-- `snapshot_id`: Foreign key to snapshots
-- `item_id`: XIVAPI item ID
-- `quantity`: Item quantity
-
-**item_info**: Cached item information from XIVAPI
-- `item_id`: Primary key (XIVAPI item ID)
-- `name`: Item name
-- `icon_url`: Icon URL (hotlinked)
-- `category`: Item category
-- `item_level`: Item level
-- `last_updated`: Cache timestamp
-
-### Caching Strategy
-
-Item information from XIVAPI is cached for 30 days by default. The cache:
-- Reduces API calls to XIVAPI
-- Improves response times
-- Works offline for previously fetched items
-- Automatically refreshes stale data
-
-### Rate Limiting
-
-The XIVAPI client implements rate limiting (20 requests/second by default) to respect API limits.
-
-## Examples
-
-Example files are provided in the `examples/` directory:
-- `example_inventory.json` - Sample JSON inventory
-- `example_inventory.csv` - Sample CSV inventory
-- `example_usage.py` - Example Python script
-
-Run the example:
-```bash
-cd examples
-python example_usage.py
-```
-
-## Development
-
-### Running Tests
+The tools work without an API key:
 
 ```bash
-pytest
+python -m companion.cli tool get_recipe '{"item_name": "Hi-Potion"}'
+python -m companion.cli tool get_material_list '{"items": [{"name": "Bronze Hatchet", "quantity": 2}]}'
+python -m companion.cli tool get_price '{"item_names": ["Cobalt Ore"], "world": "Aether"}'
 ```
 
-### Code Formatting
+## How it works
 
-This project uses Ruff for linting and formatting:
+| Piece | File | What it does |
+|---|---|---|
+| Ingest | `companion/build_db.py` | Downloads 12 game-data sheets (Recipe, Item, Leve, ...) and keeps ARR-range crafting recipes, their items, and DoH levequests in SQLite. |
+| Index | same | Writes one short text document per recipe, item, and leve into an SQLite FTS5 table (BM25 keyword search). |
+| Tools | `companion/tools.py` | `search`, `get_recipe`, `get_item`, `list_recipes`, `find_leves`, `get_material_list`, `get_price`. Plain functions returning JSON. |
+| Prices | `companion/market.py` | Universalis API client with a 15-minute SQLite cache. |
+| Assistant | `companion/agent.py` | Claude tool-use loop with a grounding system prompt. Model: `claude-opus-5-5` (override with `COMPANION_MODEL`). |
+| Tests | `evals/`, `tests/` | 27 test questions, plus unit tests. |
+
+Structured lookups (exact recipe, ingredient amounts) go through SQL tables. Search is only
+for finding names and open-ended questions. For this kind of data that is more reliable than
+vector search, and it needs no embedding service. If free-text guide content is added later,
+an embedding index can sit next to FTS5 behind the same `search` tool.
+
+`get_material_list` is the planner's core: it merges shared materials across several target
+items, breaks intermediates (ingots, lumber, yarn) into raw materials, rounds up by recipe yield,
+and lets you prefer recipes from the jobs you're leveling.
+
+## Tests
 
 ```bash
-ruff check .
-ruff format .
+python -m unittest discover tests     # tools, Universalis parsing (mocked), agent loop (stubbed)
+python evals/run_evals.py             # 26 offline fact checks against the tools
+python evals/run_evals.py --live      # also asks Claude every question (uses API credits)
 ```
 
-## Future Enhancements
+Live mode checks each answer for expected facts. Two questions have only review notes (an
+out-of-scope level 90 item, and a price question with no world given); read those by hand.
 
-The following features can be added in the future:
-- **Universalis Integration**: Add market price data from Universalis API
-- **Item Search**: Search items by name, category, or other attributes
-- **Export Functionality**: Export snapshots back to JSON/CSV
-- **Snapshot Tagging**: Add tags/labels to snapshots for organization
-- **Statistics**: Calculate inventory statistics (total value, most common items, etc.)
-- **Web UI**: Add a web-based user interface
+## Data sources and licensing
 
-## Notes
+- **Game data:** CSVs from [xivapi/ffxiv-datamining](https://github.com/xivapi/ffxiv-datamining),
+  the export the XIVAPI project maintains. Game data belongs to Square Enix, so check Square
+  Enix's materials usage terms before running a public site. Run `python -m companion.build_db --refresh` after a patch.
+- **Prices:** [Universalis](https://docs.universalis.app/) public API, cached to keep request rates low.
+- **Not used:** Teamcraft and Garland Tools (no bulk reuse), and no wiki text yet. Check each
+  wiki's license before indexing its text.
 
-- **No Docker**: This is a local Python application; Docker is not required
-- **No Client Interaction**: Does not interact with the FFXIV client or game files
-- **Hotlinked Icons**: Icon URLs reference XIVAPI; images are not downloaded
-- **Immutable Snapshots**: Snapshots cannot be modified after creation
+## Known gaps
 
-## License
-
-This project is provided as-is for personal use.
+- No gathering node locations, vendor locations, quest unlocks, or crafting rotations.
+- A few later-patch recipes in the 1-50 range (furnishings, orchestrion rolls) are included; they
+  carry a `patch` field.
+- Recipe difficulty, durability, and quality are computed from the level table and may not match
+  the in-game numbers exactly.
